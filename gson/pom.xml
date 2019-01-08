@@ -7,8 +7,8 @@
     <version>2.8.6-SNAPSHOT</version>
   </parent>
 
-  <artifactId>gson</artifactId>
-  <name>Gson</name>
+  <artifactId>gson-blob-streaming</artifactId>
+  <name>Gson-Blob-Streaming</name>
 
   <dependencies>
     <dependency>

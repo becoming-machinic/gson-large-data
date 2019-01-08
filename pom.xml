@@ -15,8 +15,8 @@
   <packaging>pom</packaging>
 
   <name>Gson Parent</name>
-  <description>Gson JSON library</description>
-  <url>https://github.com/google/gson</url>
+  <description>Gson JSON library With Blob Streaming</description>
+  <url>https://github.com/becoming-machinic/gson-blob-streaming</url>
 
   <modules>
     <module>gson</module>
@@ -24,19 +24,18 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <java.version>1.6</java.version>
   </properties>
 
   <scm>
-    <url>https://github.com/google/gson/</url>
-    <connection>scm:git:https://github.com/google/gson.git</connection>
-    <developerConnection>scm:git:git@github.com:google/gson.git</developerConnection>
+    <url>https://github.com/becoming-machinic/gson-blob-streaming/</url>
+    <connection>scm:git:https://github.com/becoming-machinic/gson-blob-streaming.git</connection>
+    <developerConnection>scm:git:git@github.com:becoming-machinic/gson-blob-streaming.git</developerConnection>
     <tag>HEAD</tag>
   </scm>
 
   <issueManagement>
     <system>GitHub Issues</system>
-    <url>https://github.com/google/gson/issues</url>
+    <url>https://github.com/becoming-machinic/gson-blob-streaming/issues</url>
   </issueManagement>
 
   <licenses>
@@ -68,7 +67,8 @@
             <execution>
               <id>default-compile</id>
               <configuration>
-                <release>9</release>
+                <source>11</source>
+			    <target>11</target>
               </configuration>
             </execution>
             <execution>
@@ -84,7 +84,8 @@
             </execution>
           </executions>
           <configuration>
-            <release>6</release>
+			<source>1.8</source>
+			<target>1.8</target>
           </configuration>
         </plugin>
         <plugin>
@@ -126,7 +127,7 @@
     <profile>
       <id>doclint-java8-disable</id>
       <activation>
-        <jdk>[1.8,)</jdk>
+        <jdk>[8,1)</jdk>
       </activation>
       <build>
         <plugins>
