@@ -16,13 +16,6 @@
 
 package com.google.gson.stream;
 
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.Reader;
-import java.io.StringReader;
-import java.util.Arrays;
-import junit.framework.TestCase;
-
 import static com.google.gson.stream.JsonToken.BEGIN_ARRAY;
 import static com.google.gson.stream.JsonToken.BEGIN_OBJECT;
 import static com.google.gson.stream.JsonToken.BOOLEAN;
@@ -32,6 +25,16 @@ import static com.google.gson.stream.JsonToken.NAME;
 import static com.google.gson.stream.JsonToken.NULL;
 import static com.google.gson.stream.JsonToken.NUMBER;
 import static com.google.gson.stream.JsonToken.STRING;
+
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.StringReader;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Random;
+
+import junit.framework.TestCase;
 
 @SuppressWarnings("resource")
 public final class JsonReaderTest extends TestCase {
@@ -1727,6 +1730,50 @@ public final class JsonReaderTest extends TestCase {
       fail();
     } catch (MalformedJsonException expected) {
     }
+  }
+
+  public void testStreamValues() throws IOException {
+    JsonReader reader = new JsonReader(reader("{\"a\": \"android\", \"b\": 1, \"c\": true, \"d\": 101.1 }"));
+    reader.beginObject();
+
+    assertEquals("a", reader.nextName());
+    StringWriter writer = new StringWriter();
+    assertEquals(7, reader.nextClob(writer));
+    assertEquals("android", writer.toString());
+
+    assertEquals("b", reader.nextName());
+    writer = new StringWriter();
+    assertEquals(1, reader.nextClob(writer));
+    assertEquals("1", writer.toString());
+
+    assertEquals("c", reader.nextName());
+    writer = new StringWriter();
+    assertEquals(true, reader.nextBoolean());
+
+    assertEquals("d", reader.nextName());
+    writer = new StringWriter();
+    assertEquals(5, reader.nextClob(writer));
+    assertEquals("101.1", writer.toString());
+
+    reader.endObject();
+    assertEquals(JsonToken.END_DOCUMENT, reader.peek());
+  }
+
+  public void testLongStreamValue() throws IOException {
+    byte[] bytes = new byte[1024 * 1024];
+    new Random().nextBytes(bytes);
+    String base64String = Base64.getEncoder().encodeToString(bytes);
+
+    JsonReader reader = new JsonReader(reader(String.format("{\"a\": \"%s\" }", base64String)));
+    reader.beginObject();
+
+    assertEquals("a", reader.nextName());
+    StringWriter writer = new StringWriter();
+    assertEquals(base64String.length(), reader.nextClob(writer));
+    assertEquals(base64String, writer.toString());
+
+    reader.endObject();
+    assertEquals(JsonToken.END_DOCUMENT, reader.peek());
   }
 
   private void assertDocument(String document, Object... expectations) throws IOException {

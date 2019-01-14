@@ -17,6 +17,7 @@
 package com.google.gson;
 
 import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
@@ -25,6 +26,8 @@ import java.io.Writer;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,6 +44,8 @@ import com.google.gson.internal.GsonBuildConfig;
 import com.google.gson.internal.Primitives;
 import com.google.gson.internal.Streams;
 import com.google.gson.internal.bind.ArrayTypeAdapter;
+import com.google.gson.internal.bind.BlobFieldTypeAdapter;
+import com.google.gson.internal.bind.ClobFieldTypeAdapter;
 import com.google.gson.internal.bind.CollectionTypeAdapterFactory;
 import com.google.gson.internal.bind.DateTypeAdapter;
 import com.google.gson.internal.bind.JsonAdapterAnnotationTypeAdapterFactory;
@@ -101,6 +106,7 @@ import com.google.gson.stream.MalformedJsonException;
  * @author Inderjeet Singh
  * @author Joel Leitch
  * @author Jesse Wilson
+ * @author Caleb Shingledecker
  */
 public final class Gson {
   static final boolean DEFAULT_JSON_NON_EXECUTABLE = false;
@@ -147,6 +153,11 @@ public final class Gson {
   final LongSerializationPolicy longSerializationPolicy;
   final List<TypeAdapterFactory> builderFactories;
   final List<TypeAdapterFactory> builderHierarchyFactories;
+  final int base64LineMaxLength;
+  final char[] base64Newline;
+  final boolean base64DoPadding;
+  final Charset clobCharset;
+  final File gsonTempdir;
 
   /**
    * Constructs a Gson object with default configuration. The default configuration has the
@@ -189,7 +200,42 @@ public final class Gson {
         DEFAULT_PRETTY_PRINT, DEFAULT_LENIENT, DEFAULT_SPECIALIZE_FLOAT_VALUES,
         LongSerializationPolicy.DEFAULT, null, DateFormat.DEFAULT, DateFormat.DEFAULT,
         Collections.<TypeAdapterFactory>emptyList(), Collections.<TypeAdapterFactory>emptyList(),
-        Collections.<TypeAdapterFactory>emptyList());
+        Collections.<TypeAdapterFactory> emptyList());
+  }
+
+  /*
+   * Pass though constructor that matches the standard Gson constructor signature.
+   */
+  Gson(final Excluder excluder, final FieldNamingStrategy fieldNamingStrategy,
+      final Map<Type, InstanceCreator<?>> instanceCreators, boolean serializeNulls,
+      boolean complexMapKeySerialization, boolean generateNonExecutableGson, boolean htmlSafe,
+      boolean prettyPrinting, boolean lenient, boolean serializeSpecialFloatingPointValues,
+      LongSerializationPolicy longSerializationPolicy, String datePattern, int dateStyle,
+      int timeStyle, List<TypeAdapterFactory> builderFactories,
+      List<TypeAdapterFactory> builderHierarchyFactories,
+      List<TypeAdapterFactory> factoriesToBeAdded) {
+    this(excluder,
+        fieldNamingStrategy,
+        instanceCreators,
+        serializeNulls,
+        complexMapKeySerialization,
+        generateNonExecutableGson,
+        htmlSafe,
+        prettyPrinting,
+        lenient,
+        serializeSpecialFloatingPointValues,
+        longSerializationPolicy,
+        datePattern,
+        dateStyle,
+        timeStyle,
+        builderFactories,
+        builderHierarchyFactories,
+        factoriesToBeAdded,
+        -1,
+        new char[] { '\n' },
+        true,
+        StandardCharsets.UTF_8,
+        new File(System.getProperty("gson.tmpdir", System.getProperty("java.io.tmpdir"))));
   }
 
   Gson(final Excluder excluder, final FieldNamingStrategy fieldNamingStrategy,
@@ -199,7 +245,12 @@ public final class Gson {
       LongSerializationPolicy longSerializationPolicy, String datePattern, int dateStyle,
       int timeStyle, List<TypeAdapterFactory> builderFactories,
       List<TypeAdapterFactory> builderHierarchyFactories,
-      List<TypeAdapterFactory> factoriesToBeAdded) {
+      List<TypeAdapterFactory> factoriesToBeAdded,
+      int base64LineMaxLength,
+      char[] base64Newline,
+      boolean base64DoPadding,
+      Charset clobCharset,
+      File gsonTempdir) {
     this.excluder = excluder;
     this.fieldNamingStrategy = fieldNamingStrategy;
     this.instanceCreators = instanceCreators;
@@ -217,6 +268,11 @@ public final class Gson {
     this.timeStyle = timeStyle;
     this.builderFactories = builderFactories;
     this.builderHierarchyFactories = builderHierarchyFactories;
+    this.base64LineMaxLength = base64LineMaxLength;
+    this.base64Newline = base64Newline;
+    this.base64DoPadding = base64DoPadding;
+    this.clobCharset = clobCharset;
+    this.gsonTempdir = gsonTempdir;
 
     List<TypeAdapterFactory> factories = new ArrayList<TypeAdapterFactory>();
 
@@ -268,6 +324,10 @@ public final class Gson {
     factories.add(ArrayTypeAdapter.FACTORY);
     factories.add(TypeAdapters.CLASS_FACTORY);
 
+    // Large value type adapters
+    factories.add(BlobFieldTypeAdapter.FACTORY);
+    factories.add(ClobFieldTypeAdapter.FACTORY);
+    
     // type adapters for composite and user-defined types
     factories.add(new CollectionTypeAdapterFactory(constructorConstructor));
     factories.add(new MapTypeAdapterFactory(constructorConstructor, complexMapKeySerialization));
@@ -304,6 +364,26 @@ public final class Gson {
 
   public boolean htmlSafe() {
     return htmlSafe;
+  }
+
+  public int Base64LineMaxLength() {
+    return base64LineMaxLength;
+  }
+
+  public char[] base64Newline() {
+    return base64Newline;
+  }
+
+  public boolean base64DoPadding() {
+    return base64DoPadding;
+  }
+
+  public Charset clobCharset() {
+    return this.clobCharset;
+  }
+
+  public File gsonTempdir() {
+    return gsonTempdir;
   }
 
   private TypeAdapter<Number> doubleAdapter(boolean serializeSpecialFloatingPointValues) {

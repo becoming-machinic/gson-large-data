@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc.
+ * Copyright (C) 2019 Becoming Machinic Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +17,15 @@
 
 package com.google.gson.stream;
 
-import com.google.gson.internal.JsonReaderInternalAccess;
-import com.google.gson.internal.bind.JsonTreeReader;
 import java.io.Closeable;
 import java.io.EOFException;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.Reader;
+import java.io.Writer;
+
+import com.google.gson.internal.JsonReaderInternalAccess;
+import com.google.gson.internal.bind.JsonTreeReader;
 
 /**
  * Reads a JSON (<a href="http://www.ietf.org/rfc/rfc7159.txt">RFC 7159</a>)
@@ -185,6 +189,7 @@ import java.io.Reader;
  * of this class are not thread safe.
  *
  * @author Jesse Wilson
+ * @author Caleb Shingledecker
  * @since 1.6
  */
 public class JsonReader implements Closeable {
@@ -228,6 +233,11 @@ public class JsonReader implements Closeable {
 
   /** True to accept non-spec compliant JSON */
   private boolean lenient = false;
+  /**
+   * The max number of characters that will be read from a non-streaming field
+   * before throwing an exception
+   */
+  private int maxFieldSize = 1024 * 1024;
 
   /**
    * Use a manual buffer to easily read and unread upcoming characters, and
@@ -327,10 +337,32 @@ public class JsonReader implements Closeable {
   }
 
   /**
+   * Configure this parser to throw an IOException if it attempts to read a
+   * non-streaming field larger than this size in number of characters. This
+   * option is intended to interrupt the JsonReader before a malicious or poorly
+   * created json document can cause an OOME.
+   * 
+   * @param maxFieldSize
+   */
+  public void setMaxFieldSize(int maxFieldSize) {
+    this.maxFieldSize = maxFieldSize;
+  }
+
+  /**
    * Returns true if this parser is liberal in what it accepts.
    */
   public final boolean isLenient() {
     return lenient;
+  }
+
+  /**
+   * Parser will throw an IOException if it attempts to read a non-streaming
+   * field larger than this size in number of characters. This option is
+   * intended to interrupt the JsonReader before a malicious or poorly created
+   * json document can cause an OOME.
+   */
+  public int getMaxFieldSize() {
+    return maxFieldSize;
   }
 
   /**
@@ -830,6 +862,48 @@ public class JsonReader implements Closeable {
   }
 
   /**
+   * Copy the nextString directly to the provided writer.
+   *
+   * @throws IllegalStateException
+   *           if the next token is not a string or if this reader is closed.
+   */
+  public long nextClob(Writer outputWriter) throws IOException {
+    int p = peeked;
+    if (p == PEEKED_NONE) {
+      p = doPeek();
+    }
+    long length;
+    if (p == PEEKED_UNQUOTED) {
+      length = nextUnquotedValue(outputWriter);
+    } else if (p == PEEKED_SINGLE_QUOTED) {
+      length = nextQuotedValue('\'', outputWriter);
+    } else if (p == PEEKED_DOUBLE_QUOTED) {
+      length = nextQuotedValue('"', outputWriter);
+    } else if (p == PEEKED_BUFFERED) {
+      outputWriter.write(peekedString);
+      length = peekedString.length();
+      peekedString = null;
+    } else if (p == PEEKED_LONG) {
+      length = peekedLong(outputWriter);
+    } else if (p == PEEKED_NUMBER) {
+      outputWriter.write(buffer, pos, peekedNumberLength);
+      length = peekedNumberLength;
+      pos += peekedNumberLength;
+    } else {
+      throw new IllegalStateException("Expected a string but was " + peek() + locationString());
+    }
+    peeked = PEEKED_NONE;
+    pathIndices[stackSize - 1]++;
+    return length;
+  }
+
+  public long nextBlob(OutputStream outputStream) throws IOException {
+    try (Writer writer = new JsonValueReaderOutputStream(outputStream)) {
+      return this.nextClob(writer);
+    }
+  }
+
+  /**
    * Returns the {@link com.google.gson.stream.JsonToken#BOOLEAN boolean} value of the next token,
    * consuming it.
    *
@@ -983,9 +1057,16 @@ public class JsonReader implements Closeable {
    *     malformed.
    */
   private String nextQuotedValue(char quote) throws IOException {
-    // Like nextNonWhitespace, this uses locals 'p' and 'l' to save inner-loop field access.
+    StringWriter writer = new StringWriter(64, this.maxFieldSize);
+    nextQuotedValue(quote, writer);
+    return writer.toString();
+  }
+
+  private long nextQuotedValue(char quote, Writer outputWriter) throws IOException {
+    // Like nextNonWhitespace, this uses locals 'p' and 'l' to save inner-loop
+    // field access.
     char[] buffer = this.buffer;
-    StringBuilder builder = null;
+    long valueSize = 0;
     while (true) {
       int p = pos;
       int l = limit;
@@ -997,21 +1078,16 @@ public class JsonReader implements Closeable {
         if (c == quote) {
           pos = p;
           int len = p - start - 1;
-          if (builder == null) {
-            return new String(buffer, start, len);
-          } else {
-            builder.append(buffer, start, len);
-            return builder.toString();
-          }
+          valueSize += len;
+          outputWriter.write(buffer, start, len);
+          return valueSize;
         } else if (c == '\\') {
           pos = p;
           int len = p - start - 1;
-          if (builder == null) {
-            int estimatedLength = (len + 1) * 2;
-            builder = new StringBuilder(Math.max(estimatedLength, 16));
-          }
-          builder.append(buffer, start, len);
-          builder.append(readEscapeCharacter());
+
+          valueSize += len + 1;
+          outputWriter.write(buffer, start, len);
+          outputWriter.write(readEscapeCharacter());
           p = pos;
           l = limit;
           start = p;
@@ -1021,11 +1097,8 @@ public class JsonReader implements Closeable {
         }
       }
 
-      if (builder == null) {
-        int estimatedLength = (p - start) * 2;
-        builder = new StringBuilder(Math.max(estimatedLength, 16));
-      }
-      builder.append(buffer, start, p - start);
+      valueSize += (p - start);
+      outputWriter.write(buffer, start, p - start);
       pos = p;
       if (!fillBuffer(1)) {
         throw syntaxError("Unterminated string");
@@ -1036,13 +1109,17 @@ public class JsonReader implements Closeable {
   /**
    * Returns an unquoted value as a string.
    */
-  @SuppressWarnings("fallthrough")
   private String nextUnquotedValue() throws IOException {
-    StringBuilder builder = null;
-    int i = 0;
+    StringWriter writer = new StringWriter(64, this.maxFieldSize);
+    nextUnquotedValue(writer);
+    return writer.toString();
+  }
 
-    findNonLiteralCharacter:
-    while (true) {
+  private long nextUnquotedValue(Writer outputWriter) throws IOException {
+    int i = 0;
+    int valueSize = 0;
+
+    findNonLiteralCharacter: while (true) {
       for (; pos + i < limit; i++) {
         switch (buffer[pos + i]) {
         case '/':
@@ -1075,21 +1152,27 @@ public class JsonReader implements Closeable {
         }
       }
 
-      // use a StringBuilder when the value is too long. This is too long to be a number!
-      if (builder == null) {
-        builder = new StringBuilder(Math.max(i,16));
-      }
-      builder.append(buffer, pos, i);
+      // use a StringBuilder when the value is too long. This is too long to be
+      // a number!
+      valueSize += i;
+      outputWriter.write(buffer, pos, i);
       pos += i;
       i = 0;
       if (!fillBuffer(1)) {
         break;
       }
     }
-   
-    String result = (null == builder) ? new String(buffer, pos, i) : builder.append(buffer, pos, i).toString();
+
+    valueSize += i;
+    outputWriter.write(buffer, pos, i);
     pos += i;
-    return result;
+    return valueSize;
+  }
+
+  private int peekedLong(Writer outputWriter) throws IOException {
+    String value = Long.toString(peekedLong);
+    outputWriter.write(value);
+    return value.length();
   }
 
   private void skipQuotedValue(char quote) throws IOException {
@@ -1212,6 +1295,7 @@ public class JsonReader implements Closeable {
   /**
    * Closes this JSON reader and the underlying {@link java.io.Reader}.
    */
+  @Override
   public void close() throws IOException {
     peeked = PEEKED_NONE;
     stack[0] = JsonScope.CLOSED;
@@ -1450,7 +1534,8 @@ public class JsonReader implements Closeable {
     return false;
   }
 
-  @Override public String toString() {
+  @Override
+  public String toString() {
     return getClass().getSimpleName() + locationString();
   }
 
@@ -1592,9 +1677,10 @@ public class JsonReader implements Closeable {
 
   static {
     JsonReaderInternalAccess.INSTANCE = new JsonReaderInternalAccess() {
-      @Override public void promoteNameToValue(JsonReader reader) throws IOException {
+      @Override
+      public void promoteNameToValue(JsonReader reader) throws IOException {
         if (reader instanceof JsonTreeReader) {
-          ((JsonTreeReader)reader).promoteNameToValue();
+          ((JsonTreeReader) reader).promoteNameToValue();
           return;
         }
         int p = reader.peeked;

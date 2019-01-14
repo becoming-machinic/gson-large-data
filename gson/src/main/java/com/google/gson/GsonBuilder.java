@@ -16,7 +16,18 @@
 
 package com.google.gson;
 
+import static com.google.gson.Gson.DEFAULT_COMPLEX_MAP_KEYS;
+import static com.google.gson.Gson.DEFAULT_ESCAPE_HTML;
+import static com.google.gson.Gson.DEFAULT_JSON_NON_EXECUTABLE;
+import static com.google.gson.Gson.DEFAULT_LENIENT;
+import static com.google.gson.Gson.DEFAULT_PRETTY_PRINT;
+import static com.google.gson.Gson.DEFAULT_SERIALIZE_NULLS;
+import static com.google.gson.Gson.DEFAULT_SPECIALIZE_FLOAT_VALUES;
+
+import java.io.File;
 import java.lang.reflect.Type;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -32,14 +43,6 @@ import com.google.gson.internal.bind.TreeTypeAdapter;
 import com.google.gson.internal.bind.TypeAdapters;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
-
-import static com.google.gson.Gson.DEFAULT_COMPLEX_MAP_KEYS;
-import static com.google.gson.Gson.DEFAULT_ESCAPE_HTML;
-import static com.google.gson.Gson.DEFAULT_JSON_NON_EXECUTABLE;
-import static com.google.gson.Gson.DEFAULT_LENIENT;
-import static com.google.gson.Gson.DEFAULT_PRETTY_PRINT;
-import static com.google.gson.Gson.DEFAULT_SERIALIZE_NULLS;
-import static com.google.gson.Gson.DEFAULT_SPECIALIZE_FLOAT_VALUES;
 
 /**
  * <p>Use this builder to construct a {@link Gson} instance when you need to set configuration
@@ -94,6 +97,11 @@ public final class GsonBuilder {
   private boolean prettyPrinting = DEFAULT_PRETTY_PRINT;
   private boolean generateNonExecutableJson = DEFAULT_JSON_NON_EXECUTABLE;
   private boolean lenient = DEFAULT_LENIENT;
+  private int base64LineMaxLength = -1;
+  private char[] base64Newline = new char[] { '\n' };
+  private boolean base64DoPadding = true;
+  private Charset clobCharset = StandardCharsets.UTF_8;
+  private File gsonTempdir = new File(System.getProperty("gson.tmpdir", System.getProperty("java.io.tmpdir")));
 
   /**
    * Creates a GsonBuilder instance that can be used to build Gson with various configuration
@@ -127,6 +135,11 @@ public final class GsonBuilder {
     this.timeStyle = gson.timeStyle;
     this.factories.addAll(gson.builderFactories);
     this.hierarchyFactories.addAll(gson.builderHierarchyFactories);
+    this.base64LineMaxLength = gson.base64LineMaxLength;
+    this.base64Newline = gson.base64Newline;
+    this.base64DoPadding = gson.base64DoPadding;
+    this.clobCharset = gson.clobCharset;
+    this.gsonTempdir = gson.gsonTempdir;
   }
 
   /**
@@ -577,6 +590,35 @@ public final class GsonBuilder {
     return this;
   }
 
+  public GsonBuilder setBase64LineMaxLength(int base64Linemax) {
+    this.base64LineMaxLength = base64Linemax;
+    return this;
+  }
+
+  public GsonBuilder setBase64Newline(char[] base64Newline) {
+    this.base64Newline = base64Newline;
+    return this;
+  }
+
+  public GsonBuilder setBase64DoPadding(boolean base64DoPadding) {
+    this.base64DoPadding = base64DoPadding;
+    return this;
+  }
+
+  public GsonBuilder setClobCharset(Charset charset) {
+    this.clobCharset = charset;
+    return this;
+  }
+
+  public GsonBuilder setGsonTempdir(File gsonTempdir) {
+    if (gsonTempdir == null || !gsonTempdir.isDirectory()) {
+      throw new IllegalArgumentException(String.format("gson.tempdir is not a valid directory", gsonTempdir));
+    }
+
+    this.gsonTempdir = gsonTempdir;
+    return this;
+  }
+
   /**
    * Creates a {@link Gson} instance based on the current configuration. This method is free of
    * side-effects to this {@code GsonBuilder} instance and hence can be called multiple times.
@@ -599,10 +641,15 @@ public final class GsonBuilder {
         generateNonExecutableJson, escapeHtmlChars, prettyPrinting, lenient,
         serializeSpecialFloatingPointValues, longSerializationPolicy,
         datePattern, dateStyle, timeStyle,
-        this.factories, this.hierarchyFactories, factories);
+        this.factories, this.hierarchyFactories, factories,
+        this.base64LineMaxLength,
+        this.base64Newline,
+        this.base64DoPadding,
+        this.clobCharset,
+        this.gsonTempdir);
   }
 
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({ "unchecked", "rawtypes" })
   private void addTypeAdaptersForDate(String datePattern, int dateStyle, int timeStyle,
       List<TypeAdapterFactory> factories) {
     DefaultDateTypeAdapter dateTypeAdapter;
