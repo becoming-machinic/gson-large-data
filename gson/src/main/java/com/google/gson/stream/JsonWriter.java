@@ -19,6 +19,7 @@ package com.google.gson.stream;
 import java.io.Closeable;
 import java.io.Flushable;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.Writer;
 import java.util.Arrays;
 
@@ -140,8 +141,8 @@ public class JsonWriter implements Closeable, Flushable {
    * newline characters. This prevents eval() from failing with a syntax
    * error. http://code.google.com/p/google-gson/issues/detail?id=341
    */
-  private static final String[] REPLACEMENT_CHARS;
-  private static final String[] HTML_SAFE_REPLACEMENT_CHARS;
+  static final String[] REPLACEMENT_CHARS;
+  static final String[] HTML_SAFE_REPLACEMENT_CHARS;
   static {
     REPLACEMENT_CHARS = new String[128];
     for (int i = 0; i <= 0x1f; i++) {
@@ -189,6 +190,12 @@ public class JsonWriter implements Closeable, Flushable {
   private String deferredName;
 
   private boolean serializeNulls = true;
+
+  private CloseableValueStream openValueStream = null;
+  
+  private char[] newLineChar = new char[] { '\n' };
+  private int lineMax = -1;
+  private boolean doPadding = true;
 
   /**
    * Creates a new instance that writes a JSON-encoded stream to {@code out}.
@@ -276,6 +283,54 @@ public class JsonWriter implements Closeable, Flushable {
    */
   public final boolean getSerializeNulls() {
     return serializeNulls;
+  }
+
+  /**
+   * Returns the new line character when writing a value stream with a line max greater than zero;
+   * @return
+   */
+  public char[] getNewLineChar() {
+    return newLineChar;
+  }
+
+  /**
+   * Sets the new line character when writing a value stream with a line max greater than zero;
+   * @param newLineChar
+   */
+  public void setNewLineChar(char[] newLineChar) {
+    this.newLineChar = newLineChar;
+  }
+
+  /**
+   * Returns the line max length when writing a value stream.
+   * @return
+   */
+  public int getLineMax() {
+    return lineMax;
+  }
+
+  /**
+   * Sets the line max length when writing a value stream.
+   * @param lineMax
+   */
+  public void setLineMax(int lineMax) {
+    this.lineMax = lineMax;
+  }
+
+  /**
+   * Returns weather padding should be used when converting a value stream to base64.
+   * @return
+   */
+  public boolean isDoPadding() {
+    return doPadding;
+  }
+
+  /**
+   * Sets weather padding should be used when converting a value stream to base64.
+   * @param doPadding
+   */
+  public void setDoPadding(boolean doPadding) {
+    this.doPadding = doPadding;
   }
 
   /**
@@ -382,6 +437,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter name(String name) throws IOException {
+    checkOpenValueStream();
     if (name == null) {
       throw new NullPointerException("name == null");
     }
@@ -410,6 +466,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter value(String value) throws IOException {
+    checkOpenValueStream();
     if (value == null) {
       return nullValue();
     }
@@ -420,6 +477,35 @@ public class JsonWriter implements Closeable, Flushable {
   }
 
   /**
+   * Encodes {@code value}.<br/>
+   * Opens a JsonValueWriter that for writing a value directly to json stream.
+   *
+   * @param value the literal string value, or null to encode a null literal.
+   * @return this writer.
+   */
+  public JsonValueWriter getValueWriter() throws IOException {
+    checkOpenValueStream();
+    writeDeferredName();
+    beforeValue();
+    JsonValueWriter valueWriter = new JsonValueWriter(out, true, this.htmlSafe, true);
+    this.openValueStream = valueWriter;
+    return valueWriter;
+  }
+
+  /**
+   * Encodes {@code value}.<br/>
+   * Opens a JsonValueOutputStream for writing binary as a json value. Write binary data will be encoded as Base64 (RFC 2045 and RFC 4648).
+   *
+   * @return JsonValueOutputStream.
+   */
+  public OutputStream getValueOutputStream() throws IOException {
+    checkOpenValueStream();
+    writeDeferredName();
+    beforeValue();
+    return new JsonValueWriterOutputStream(out, true, this.newLineChar, this.lineMax, this.doPadding);
+  }
+  
+  /**
    * Writes {@code value} directly to the writer without quoting or
    * escaping.
    *
@@ -427,6 +513,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter jsonValue(String value) throws IOException {
+    checkOpenValueStream();
     if (value == null) {
       return nullValue();
     }
@@ -437,11 +524,25 @@ public class JsonWriter implements Closeable, Flushable {
   }
 
   /**
+   * Open JsonValueWriter for direct literal writing without quoting or escaping.
+   *
+   * @return internal writer.
+   * @throws IOException
+   */
+  public JsonValueWriter getLiteralValueWriter() throws IOException {
+    checkOpenValueStream();
+    writeDeferredName();
+    beforeValue();
+    return new JsonValueWriter(out, false, this.htmlSafe, false);
+  }
+
+  /**
    * Encodes {@code null}.
    *
    * @return this writer.
    */
   public JsonWriter nullValue() throws IOException {
+    checkOpenValueStream();
     if (deferredName != null) {
       if (serializeNulls) {
         writeDeferredName();
@@ -461,6 +562,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter value(boolean value) throws IOException {
+    checkOpenValueStream();
     writeDeferredName();
     beforeValue();
     out.write(value ? "true" : "false");
@@ -473,6 +575,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter value(Boolean value) throws IOException {
+    checkOpenValueStream();
     if (value == null) {
       return nullValue();
     }
@@ -490,6 +593,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter value(double value) throws IOException {
+    checkOpenValueStream();
     writeDeferredName();
     if (!lenient && (Double.isNaN(value) || Double.isInfinite(value))) {
       throw new IllegalArgumentException("Numeric values must be finite, but was " + value);
@@ -505,6 +609,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter value(long value) throws IOException {
+    checkOpenValueStream();
     writeDeferredName();
     beforeValue();
     out.write(Long.toString(value));
@@ -519,6 +624,7 @@ public class JsonWriter implements Closeable, Flushable {
    * @return this writer.
    */
   public JsonWriter value(Number value) throws IOException {
+    checkOpenValueStream();
     if (value == null) {
       return nullValue();
     }
@@ -545,12 +651,24 @@ public class JsonWriter implements Closeable, Flushable {
     out.flush();
   }
 
+  private void checkOpenValueStream() throws IOException {
+    if (this.openValueStream != null) {
+      if (!this.openValueStream.isClosed()) {
+        throw new IOException("Value can not be written, a valueStream is still open.");
+      }
+      this.openValueStream = null;
+    }
+  }
+
   /**
    * Flushes and closes this writer and the underlying {@link Writer}.
    *
    * @throws IOException if the JSON document is incomplete.
    */
   public void close() throws IOException {
+    if (this.openValueStream != null && !openValueStream.isClosed()) {
+      this.openValueStream.close();
+    }
     out.close();
 
     int size = stackSize;

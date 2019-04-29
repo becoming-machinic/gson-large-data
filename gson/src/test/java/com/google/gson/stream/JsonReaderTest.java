@@ -21,6 +21,9 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Random;
+
 import junit.framework.TestCase;
 
 import static com.google.gson.stream.JsonToken.BEGIN_ARRAY;
@@ -1726,6 +1729,72 @@ public final class JsonReaderTest extends TestCase {
       reader.nextString();
       fail();
     } catch (MalformedJsonException expected) {
+    }
+  }
+
+  public void testStreamValues() throws IOException {
+    JsonReader reader =
+        new JsonReader(reader("{\"a\": \"android\", \"b\": 1, \"c\": true, \"d\": 101.1 }"));
+    reader.beginObject();
+
+    assertEquals("a", reader.nextName());
+    StringWriter writer = new StringWriter();
+    assertEquals(7, reader.nextValue(writer));
+    assertEquals("android", writer.toString());
+
+    assertEquals("b", reader.nextName());
+    writer = new StringWriter();
+    assertEquals(1, reader.nextValue(writer));
+    assertEquals("1", writer.toString());
+
+    assertEquals("c", reader.nextName());
+    writer = new StringWriter();
+    assertEquals(true, reader.nextBoolean());
+
+    assertEquals("d", reader.nextName());
+    writer = new StringWriter();
+    assertEquals(5, reader.nextValue(writer));
+    assertEquals("101.1", writer.toString());
+
+    reader.endObject();
+    assertEquals(JsonToken.END_DOCUMENT, reader.peek());
+  }
+
+  public void testLongStreamValue() throws IOException {
+    byte[] bytes = new byte[1024 * 1024];
+    new Random().nextBytes(bytes);
+    String base64String = Base64.getEncoder().encodeToString(bytes);
+
+    JsonReader reader = new JsonReader(reader(String.format("{\"a\": \"%s\" }", base64String)));
+    reader.beginObject();
+
+    assertEquals("a", reader.nextName());
+    StringWriter writer = new StringWriter();
+    assertEquals(base64String.length(), reader.nextValue(writer));
+    assertEquals(base64String, writer.toString());
+
+    reader.endObject();
+    assertEquals(JsonToken.END_DOCUMENT, reader.peek());
+  }
+
+  public void testOverMaxLengthValue() throws IOException {
+    byte[] bytes = new byte[1024 * 1024];
+    new Random().nextBytes(bytes);
+    String base64String = Base64.getEncoder().encodeToString(bytes);
+
+    JsonReader reader = new JsonReader(reader(String.format("{\"a\": \"%s\" }", base64String)));
+    reader.setMaxFieldSize(512);
+
+    reader.beginObject();
+
+    assertEquals("a", reader.nextName());
+    try {
+      reader.nextString();
+      fail("Reading value should have failed maxlength check");
+    } catch (IOException e) {
+      assertEquals("Buffer size exceeds maxLength.",e.getMessage());
+    } finally {
+      reader.close();
     }
   }
 
