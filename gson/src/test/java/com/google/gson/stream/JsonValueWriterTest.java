@@ -59,16 +59,28 @@ public class JsonValueWriterTest {
 
   private String writeValue(String value, boolean excapeValues, boolean htmlSafe, boolean quote) throws IOException {
     StringWriter writer = new StringWriter();
-    try (Writer jsonValueWriter = new JsonValueWriter(writer, excapeValues, htmlSafe, quote)) {
+    Writer jsonValueWriter = null;
+    try {
+      jsonValueWriter = new JsonValueWriter(writer, excapeValues, htmlSafe, quote);
       jsonValueWriter.write(value, 0, value.length());
+    } finally {
+      if(jsonValueWriter != null) {
+        jsonValueWriter.close();
+      }
     }
     return writer.toString();
   }
 
   private String writeValue(char[] value, boolean excapeValues, boolean htmlSafe, boolean quote) throws IOException {
     StringWriter writer = new StringWriter();
-    try (Writer jsonValueWriter = new JsonValueWriter(writer, excapeValues, htmlSafe, quote)) {
+    Writer jsonValueWriter = null;
+    try {
+      jsonValueWriter = new JsonValueWriter(writer, excapeValues, htmlSafe, quote);
       jsonValueWriter.write(value, 0, value.length);
+    } finally {
+      if(jsonValueWriter != null) {
+        jsonValueWriter.close();
+      }
     }
     return writer.toString();
   }

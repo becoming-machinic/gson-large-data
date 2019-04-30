@@ -66,9 +66,14 @@ public class JsonValueWriterOutputStreamTest {
   @Test
   public void testWriteInt() throws IOException {
     StringWriter writer = new StringWriter();
-    try (OutputStream outputStream =
-        new JsonValueWriterOutputStream(writer, false, null, -1, true)) {
+    OutputStream outputStream = null;
+    try {
+      outputStream = new JsonValueWriterOutputStream(writer, false, null, -1, true);
       outputStream.write('a');
+    } finally {
+      if(outputStream != null) {
+        outputStream.close();
+      }
     }
     assertEquals(Base64.getEncoder().encodeToString("a".getBytes(StandardCharsets.UTF_8)),writer.toString());
   }
@@ -76,9 +81,14 @@ public class JsonValueWriterOutputStreamTest {
   private String valueWriterEncoder(byte[] data, boolean quote, char[] newline, int linemax,
       boolean doPadding) throws IOException {
     StringWriter writer = new StringWriter();
-    try (OutputStream outputStream =
-        new JsonValueWriterOutputStream(writer, doPadding, newline, linemax, doPadding)) {
+    OutputStream outputStream = null;
+    try {
+      outputStream = new JsonValueWriterOutputStream(writer, doPadding, newline, linemax, doPadding);
       outputStream.write(data, 0, data.length);
+    } finally {
+      if(outputStream != null) {
+        outputStream.close();
+      }
     }
     return writer.toString();
   }
@@ -96,14 +106,22 @@ public class JsonValueWriterOutputStreamTest {
   private String valueWriterEncoder(byte[] data, int copyBufferSize, boolean quote, char[] newline,
       int linemax, boolean doPadding) throws IOException {
     StringWriter writer = new StringWriter();
-    try (OutputStream outputStream =
-        new JsonValueWriterOutputStream(writer, doPadding, newline, linemax, doPadding)) {
-      byte[] copyBuffer = new byte[copyBufferSize];
-      try (InputStream inputStream = new ByteArrayInputStream(data)) {
-        int read = 0;
-        while ((read = inputStream.read(copyBuffer)) > -1) {
-          outputStream.write(copyBuffer, 0, read);
-        }
+    OutputStream outputStream = null;
+    InputStream inputStream = null;
+    byte[] copyBuffer = new byte[copyBufferSize];
+    try {
+      outputStream = new JsonValueWriterOutputStream(writer, doPadding, newline, linemax, doPadding);
+      inputStream = new ByteArrayInputStream(data);
+      int read = 0;
+      while ((read = inputStream.read(copyBuffer)) > -1) {
+        outputStream.write(copyBuffer, 0, read);
+      }
+    } finally {
+      if(outputStream != null) {
+        outputStream.close();
+      }
+      if(inputStream != null) {
+        inputStream.close();
       }
     }
     return writer.toString();

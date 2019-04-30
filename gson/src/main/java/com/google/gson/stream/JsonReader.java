@@ -895,8 +895,14 @@ public class JsonReader implements Closeable {
   }
 
   public long nextValue(OutputStream outputStream) throws IOException {
-    try (Writer writer = new JsonValueReaderOutputStream(outputStream)) {
+    Writer writer = null;
+    try {
+      writer = new JsonValueReaderOutputStream(outputStream);
       return this.nextValue(writer);
+    } finally {
+      if(writer != null) {
+        writer.close();
+      }
     }
   }
 

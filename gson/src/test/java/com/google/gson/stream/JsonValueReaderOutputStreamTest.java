@@ -47,8 +47,14 @@ public class JsonValueReaderOutputStreamTest {
 
   private void checkReader(String base64String) throws IOException {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-    try (Writer writer = new JsonValueReaderOutputStream(outputStream)) {
+    Writer writer = null;
+    try {
+      writer = new JsonValueReaderOutputStream(outputStream);
       writer.write(base64String.toCharArray());
+    } finally {
+      if(writer != null) {
+        writer.close();
+      }
     }
     assertArrayEquals(Base64.getDecoder().decode(base64String), outputStream.toByteArray());
   }
@@ -57,9 +63,15 @@ public class JsonValueReaderOutputStreamTest {
     char[] buffer = base64String.toCharArray();
 
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-    try (Writer writer = new JsonValueReaderOutputStream(outputStream)) {
+    Writer writer = null;
+    try {
+      writer = new JsonValueReaderOutputStream(outputStream);
       for (int i = 0; i < buffer.length - 1; i++) {
         writer.write(buffer, i, 1);
+      }
+    } finally {
+      if(writer != null) {
+        writer.close();
       }
     }
     assertArrayEquals(Base64.getDecoder().decode(base64String), outputStream.toByteArray());
@@ -67,8 +79,14 @@ public class JsonValueReaderOutputStreamTest {
 
   private void checkReaderBadData(String expectedResult, String base64String) throws IOException {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-    try (Writer writer = new JsonValueReaderOutputStream(outputStream)) {
+    Writer writer = null;
+    try {
+      writer = new JsonValueReaderOutputStream(outputStream);
       writer.write(base64String.toCharArray());
+    } finally {
+      if(writer != null) {
+        writer.close();
+      }
     }
     assertArrayEquals(Base64.getDecoder().decode(expectedResult), outputStream.toByteArray());
   }
@@ -85,13 +103,22 @@ public class JsonValueReaderOutputStreamTest {
 
   public void Base64DataDecoder(byte[] binaryData, int copyBufferSize) throws IOException {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-    try (Reader reader = new InputStreamReader(new ByteArrayInputStream(Base64.getEncoder().encode(binaryData)))) {
-      try (Writer writer = new JsonValueReaderOutputStream(outputStream)) {
-        char[] copyBuffer = new char[copyBufferSize];
-        int read = 0;
-        while ((read = reader.read(copyBuffer)) > -1) {
-          writer.write(copyBuffer, 0, read);
-        }
+    Reader reader = null;
+    Writer writer = null;
+    try {
+      reader = new InputStreamReader(new ByteArrayInputStream(Base64.getEncoder().encode(binaryData)));
+      writer = new JsonValueReaderOutputStream(outputStream);
+      char[] copyBuffer = new char[copyBufferSize];
+      int read = 0;
+      while ((read = reader.read(copyBuffer)) > -1) {
+        writer.write(copyBuffer, 0, read);
+      }
+    } finally {
+      if(reader != null) {
+        reader.close();
+      }
+      if(writer != null) {
+        writer.close();
       }
     }
     assertArrayEquals(String.format("Decoding fail. Buffer size %s, encoded data: %s", copyBufferSize, Base64.getEncoder().encodeToString(binaryData)), binaryData, outputStream.toByteArray());
